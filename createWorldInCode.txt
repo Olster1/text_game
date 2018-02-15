@@ -1,0 +1,40 @@
+Room *room1 = addRoom("You are in a room with somebodies dwellings. There is a bed on the floor and a table");
+    
+    Object *obj = addObject(room1, "key", "A large key with inscribings on it.");
+    
+    Object *key = obj;
+    
+    addInteractionVO(table, obj, TAKE, "You put the key in your backpack", initInvetoryCallbackInfo(obj, INVENTORY_ADD));
+    
+    addInteractionVO(table, obj, DROP, "You dropped the key", initInvetoryCallbackInfo(obj, INVENTORY_DROP));
+    
+    obj = addObject(room1, "snake", "You see a snake coming towards you. It looks provoked.");
+    addAttackerUpdate(obj, 2, "The snake lashes out at you, and bites you ", 10);
+    
+    obj = addObject(room1, "bread", "There is an old piece of stale bread");
+    addInteractionVO(table, obj, EAT, "You ate the delicous bread", initHealthCallbackInfo(5));
+    addInteractionVO(table, obj, TAKE, "You put the bread in you backpack", initInvetoryCallbackInfo(obj, INVENTORY_ADD));
+    addInteractionVO(table, obj, DROP, "You drop bread from your backpack", initInvetoryCallbackInfo(obj, INVENTORY_DROP));
+    
+    Room *room2 = addRoom("There is a long corridor and at the end there is a wrought iron gate.");
+    
+    obj = addObject(room2, "potion", "There is a potion, it looks deadly.");
+    
+    addInteractionVO(table, obj, TAKE, "You put the potion in your backpack", initInvetoryCallbackInfo(obj, INVENTORY_ADD));
+    addInteractionVO(table, obj, DROP, "You drop the potion", initInvetoryCallbackInfo(obj, INVENTORY_DROP));
+    
+    addInteractionVO(table, obj, EAT, "You daringly drink the potion", initHealthCallbackInfo(-5));
+    
+    connectRooms(room1,  "You see a pavement leading down a long corridor", room2, "You see a small room with a bed.", NORTH, 0, 0);
+    
+    obj = addObject(room2, "gate", "There is a wrought iron gate.");
+    Object *door = obj;
+    setFlag(door, IS_SHUT, true);
+    
+    addInteractionVOVO(table, key, door, USE, ON, "You put the key in the lock...Bingo. It works!", initOpenCallbackInfo());
+    
+    Room *room3 = addRoom("There is a well in the middle of the the pavilion. People are rushing past eveywhere.");
+    
+    
+    connectRooms(room2, "We see a pavilion with what looks like a well", room3, "You see a pavement leading down a long corridor", EAST, door, "You try the handle, but it's locked");
+

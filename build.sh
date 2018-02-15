@@ -1,0 +1,1 @@
+gcc main.c -o ../bin/adventure -lSDL2 -framework OpenGL -g 

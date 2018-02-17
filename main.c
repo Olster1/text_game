@@ -4,7 +4,6 @@
 #include <string.h>
 #include <OpenGl/gl.h>
 
-
 #include <SDL2/sdl.h>
 #include "easy.h"
 
@@ -15,6 +14,7 @@ static float fontHeight = 32;
 static float bufferHeight;
 static float bufferWidth; 
 static float globalSpacing = 20;
+static float globalWasResponse = false;
 
 static float compassX;
 static float compassY;
@@ -22,6 +22,7 @@ static float compassY;
 #include "sdl_audio.h"
 #include "easy_opengl.h"
 #include "easy_font.h"
+#include "easy_array.h"
 #include "main.h"
 
 static Font mainFont;
@@ -78,6 +79,7 @@ TextAnimationInfo *pushAnimInfo(PrintInfo *printInfo,
     animInfo->startColor = startColor;
     animInfo->finishColor = finishColor;
     animInfo->timer.period = period;
+    animInfo->timer.value = 0;
     animInfo->useOnce = false;
     return animInfo;
 }
@@ -104,8 +106,26 @@ V2 getBounds(char *string, Rect2f margin, Font *font) {
 
 PrintInfo *pushPrintStruct_(GameState *state, char *string, float minX, float maxX, float minY, float size, V4 startColor, V4 finishColor, float period, LifeSpan lifeSpan, RenderType renderType, V2 begin, V2 end, GLuint texId, Rect2f *rect) {
     PrintInfo *result = 0;
-    if(state->printInfoCount < arrayCount(state->printInfos)) {
-        result = state->printInfos + state->printInfoCount++; 
+    
+    if(state->freeIndexes) {
+        FreeIndex *freeIndex = state->freeIndexes;
+        result = state->printInfos + freeIndex->index;
+        assert(!result->active);
+        
+        //remove from list
+        state->freeIndexes = freeIndex->next;
+        
+        //add to free list
+        freeIndex->next = state->freeList;
+        state->freeList = freeIndex;
+        
+    } else {
+        if(state->printInfoCount < arrayCount(state->printInfos)) {
+            result = state->printInfos + state->printInfoCount++; 
+        }
+    }
+    //do we want to make this into a dynamic array so we can always push new information on can assert(result) 
+    if(result) {
         zeroStruct(result, PrintInfo);
         
         result->type = renderType;
@@ -141,7 +161,8 @@ PrintInfo *pushPrintStruct_(GameState *state, char *string, float minX, float ma
                 V4 tempColor = startColor;
                 tempColor.w = 0;
                 TextAnimationInfo *txtInf = pushAnimInfo(result, tempColor, finishColor, 1);
-                txtInf->useOnce = true; //just fade in but don't cycle that animation
+                txtInf->useOnce = true;
+                //just fade in but don't cycle that animation
                 pushAnimInfo(result, startColor, finishColor, period);
             }
         }
@@ -1302,6 +1323,8 @@ void processTurn(GameState *currentGameState, InteractionTable *table, Room **cu
             pushDelayedPrintStructDefault(delayedArray, currentGameState, charBuffer, BRIEF);
         }
         
+        globalWasResponse = true; //this is to say scroll to the bottom of the scroll window.  
+        
         if(thisInteraction->soundResponse) {
             WavFile *sound = findSound(thisInteraction->soundResponse);
             if(sound) {
@@ -1544,7 +1567,20 @@ void describeRoom(Room *currentRoom, GameState *currentGameState, Rect2f *object
 }
 
 void removePrintInfo(GameState *state, int index) {
-    state->printInfos[index] = state->printInfos[--state->printInfoCount];
+    FreeIndex *freeIndex = 0;
+    if(state->freeList) {
+        freeIndex = state->freeList;
+        state->freeList = freeIndex->next;
+    } else {
+        freeIndex = pushStruct(&arena, FreeIndex);
+    }
+    freeIndex->next = state->freeIndexes; 
+    state->freeIndexes = freeIndex;
+    
+    PrintInfo *info = state->printInfos + index;
+    info->active = false;
+    
+    freeIndex->index = index;
 }
 
 void setForRemoval(PrintInfo *info) {
@@ -1627,7 +1663,6 @@ PrintInfo *pushPrintStructWithDelay(GameState *state, char *string, float minX, 
     
     return printInfo;
 }
-
 
 int main(int argc, char *args[]) {
     SDL_Window *windowHandle = 0;
@@ -1755,6 +1790,7 @@ int main(int argc, char *args[]) {
         
         gameStateTurn->next = gameStateTurn;
         
+        //switch gamestate
         GameState *gameStateFreeList = 0;
         GameState *currentGameState = gameStateFullPage;
         //GameState *currentGameState = gameStateTurn;
@@ -1818,7 +1854,7 @@ int main(int argc, char *args[]) {
         
         pushPrintStructWithDelay(gameStateFullPage, cString, 0.1f, 0.8f, 0.6, h3FontSize, COLOR_NULL, COLOR_BLACK, 7, 3);
         
-        pushPrintStructWithDelay(gameStateFullPage, dString, 0.4f, 0.8f, 0.6, h3FontSize, COLOR_NULL, COLOR_BLACK, 9, 3);
+        pushPrintStructWithDelay(gameStateFullPage, dString, 0.4f, 0.8f, 0.6, h3FontSize, COLOR_NULL, COLOR_BLACK, 1, 3);
 #endif
         
         pushPrintStruct(gameStateTurn, "What do you do?\n", 0.1f, 0.8f, 0.8, h3FontSize, v4(0, 0, 0, 1), v4(0, 0, 0, 1), 4, FOREVER);
@@ -1865,6 +1901,7 @@ int main(int argc, char *args[]) {
         Lerpf scrAt = initLerpf();
         LerpV4 scrCol = initLerpV4();
         Lerpf windowH = initLerpf();
+        
         //game loop
         while(running && currentRoom) {
             bool mouseWasDown = isDown(gameButtons, BUTTON_LEFT_MOUSE);
@@ -2211,6 +2248,8 @@ int main(int argc, char *args[]) {
                     //openGlTextureCentreDim(doorTexId, v2(0.5f*width, 0.5f*height), v2(0.2f*width, 0.2f*height), v4(1, 1, 1, 1), 0, mat4());
                     
                     if(submitTurn) {
+                        printf("%d\n", currentGameState->printInfoCount);
+                        
                         for(int printStructCount = 0;
                             printStructCount < currentGameState->printInfoCount;
                             printStructCount++) {
@@ -2243,6 +2282,7 @@ int main(int argc, char *args[]) {
                             tempInfo->isDynamic = true;
                         }
                         //
+                        printf("%d\n", currentGameState->printInfoCount);
                     }
                     
                     if(drawInput) {
@@ -2348,25 +2388,22 @@ int main(int argc, char *args[]) {
                     transWin = reevalRect2f(transWin);
                     //
                     
-                    
                     //RENDER
                     int activeCount = currentGameState->printInfoCount;
-                    for(int printStructCount = 0; printStructCount < currentGameState->printInfoCount; ) {
+                    for(int printStructCount = 0; printStructCount < currentGameState->printInfoCount; printStructCount++) {
                         bool incrementIndex = true;
                         PrintInfo *info = currentGameState->printInfos + printStructCount;
                         
                         TextAnimationInfo *animInfo = info->animInfos + info->animAt;
                         assert(info->animCount);
-                        bool wentIn = true;
                         if(info->active) {
-                            wentIn = false;
                             TimerReturnInfo timerInfo = updateTimer(&animInfo->timer, dt);
                             
                             if(timerInfo.finished) {
                                 if(animInfo->useOnce) {
                                     //remove animation and don't move to next one because we move all animations down. 
                                     for(int animIndex = info->animAt;
-                                        animIndex < info->animCount;
+                                        animIndex < (info->animCount - 1); //so we don't over run the array
                                         ++animIndex) {
                                         info->animInfos[animIndex] = info->animInfos[animIndex + 1]; //move everyone down one index - same as splicing with text. 
                                     }
@@ -2375,85 +2412,82 @@ int main(int argc, char *args[]) {
                                     //move to next animation
                                     info->animAt++;
                                 }
-                                animInfo->timer.value = 0; //clear value if this print struct is used again
                                 if(info->animAt < info->animCount) {
                                     //alright to go to next animation
                                 } else if(info->lifeSpan == BRIEF){
                                     removePrintInfo(currentGameState, printStructCount);
-                                    incrementIndex = false;
                                     activeCount--;
-                                    info->active = false;
                                 } else { //start from the start again
+                                    //printf("not brief\n");
                                     info->animAt = 0;
                                 }
                             } 
-                            
-                            V4 color = smoothStep01V4(animInfo->startColor, timerInfo.canonicalVal, animInfo->finishColor);
-                            
-                            float xPos = info->margin.minX*bufferWidth; 
-                            float yPos = info->margin.minY*bufferHeight;
-                            Rect2f stringMargin = info->margin;
-                            stringMargin.minX *= bufferWidth;
-                            stringMargin.minY *= bufferHeight;
-                            stringMargin.maxX *= bufferWidth;
-                            stringMargin.maxY *= bufferHeight;
-                            
-                            if(info->isDynamic) {
-                                glEnable(GL_SCISSOR_TEST);
+                            //timer may have finished and print info no longer active 
+                            if(info->active) {
+                                V4 color = smoothStep01V4(animInfo->startColor, timerInfo.canonicalVal, animInfo->finishColor);
                                 
-                                V2 a = transWin.min;
-                                V2 b = transWin.max;
+                                float xPos = info->margin.minX*bufferWidth; 
+                                float yPos = info->margin.minY*bufferHeight;
+                                Rect2f stringMargin = info->margin;
+                                stringMargin.minX *= bufferWidth;
+                                stringMargin.minY *= bufferHeight;
+                                stringMargin.maxX *= bufferWidth;
+                                stringMargin.maxY *= bufferHeight;
                                 
-                                int ww = b.x - a.x;
-                                int wh = b.y - a.y;
-                                
-                                glScissor(a.x, a.y, ww, wh);
-                                
-                                if(yPos > heighestYValue_) {
-                                    heighestYValue_ = yPos;
-                                }
-                                
-                                yPos -= scrollOffset;
-                            }
-#if 1
-                            switch(info->type) {
-                                case STRING: {
-                                    outputText(&mainFont, xPos, yPos, (float)bufferWidth, (float)bufferHeight, info->string, stringMargin, color, info->size, true);
-                                } break;
-                                case LINE: {
-                                    float thickness = 4;
-                                    V2 A = v2_hadamard(v2(bufferWidth, bufferHeight), info->begin);
-                                    V2 B = v2_hadamard(v2(bufferWidth, bufferHeight), info->end);
-                                    openGlDrawLine(A, B, color, thickness, mat4TopLeftToBottomLeft(bufferHeight));
-                                } break;
-                                case TEXTURE: {
-                                    openGlTextureCentreDim(info->texId, getCenter(*info->texRect), getDim(*info->texRect), color, 0, info->offsetTransform);
-                                } break;
-                                case RECT_OUTLINE: {
-                                    V4 rectColor = *info->color;
-                                    rectColor.w = color.w;
-                                    openGlDrawRectOutlineRect2f(*info->texRect, rectColor, 0, info->offsetTransform);
+                                if(info->isDynamic) {
+                                    glEnable(GL_SCISSOR_TEST);
                                     
-                                } break;
-                                default: {
-                                    invalidCodePathStr("case not handled");
+                                    V2 a = transWin.min;
+                                    V2 b = transWin.max;
+                                    
+                                    int ww = b.x - a.x;
+                                    int wh = b.y - a.y;
+                                    
+                                    glScissor(a.x, a.y, ww, wh);
+                                    
+                                    if(yPos > heighestYValue_) {
+                                        heighestYValue_ = yPos;
+                                    }
+                                    
+                                    yPos -= scrollOffset;
                                 }
-                            }
+#if 1
+                                switch(info->type) {
+                                    case STRING: {
+                                        outputText(&mainFont, xPos, yPos, (float)bufferWidth, (float)bufferHeight, info->string, stringMargin, color, info->size, true);
+                                    } break;
+                                    case LINE: {
+                                        float thickness = 4;
+                                        V2 A = v2_hadamard(v2(bufferWidth, bufferHeight), info->begin);
+                                        V2 B = v2_hadamard(v2(bufferWidth, bufferHeight), info->end);
+                                        openGlDrawLine(A, B, color, thickness, mat4TopLeftToBottomLeft(bufferHeight));
+                                    } break;
+                                    case TEXTURE: {
+                                        openGlTextureCentreDim(info->texId, getCenter(*info->texRect), getDim(*info->texRect), color, 0, info->offsetTransform);
+                                    } break;
+                                    case RECT_OUTLINE: {
+                                        V4 rectColor = *info->color;
+                                        rectColor.w = color.w;
+                                        openGlDrawRectOutlineRect2f(*info->texRect, rectColor, 0, info->offsetTransform);
+                                        
+                                    } break;
+                                    default: {
+                                        invalidCodePathStr("case not handled");
+                                    }
+                                }
 #endif
-                            glDisable(GL_SCISSOR_TEST);
-                            
+                                glDisable(GL_SCISSOR_TEST);
+                            }
                         } else {
-                            assert(wentIn);
                             assert(!info->active);
                             activeCount--;
                         }
                         
-                        if(incrementIndex) {
-                            printStructCount++;
-                        }
                     }
                     
-                    if(!activeCount) {
+                    bool changedState = false;
+                    if(activeCount == 0) {
+                        //no more active print structs. Move to next game state
                         GameState *newState = currentGameState->next;
                         
                         if(newState == currentGameState) {
@@ -2462,26 +2496,30 @@ int main(int argc, char *args[]) {
                         } else {
                             currentGameState->next = gameStateFreeList;
                             gameStateFreeList = currentGameState;
-                            
+                            changedState = true;
+                            setYValue = true;
                             currentGameState = newState;
                         }
                         assert(currentGameState);
                     }
-                    float newHeighVal = heighestYValue_ + 1.5f*fontHeight;
-                    if(!setYValue) {
-                        if((newHeighVal != lastHeighestYValue && !isOn(&windowH.timer))) {
-                            printf("hey tehre\n");
-                            setLerpInfof_s(&windowH, newHeighVal, 0.3f, &lastHeighestYValue);
-                            setLerpInfof_s(&scrAt, windowHeight, 0.3f, &scrollHandleAt.y);
-                            
-                            // TODO(Oliver): This is broken! we need to
-                            // think about this more. There are different cases we need
-                            // to handle. like when there is info at the bottom, but also when we go back to the top when we change room and when the window gets smaller. and we can't just use the print bounds, since there is the case when one line dissapears and one appears, it won't move. 
+                    if(!changedState) {
+                        float newHeighVal = heighestYValue_ + 1.5f*fontHeight;
+                        if(!setYValue) {
+                            if((newHeighVal != lastHeighestYValue && !isOn(&windowH.timer)) || globalWasResponse) {
+                                globalWasResponse = false; //this is so we still scroll down to new information, to handle the case when it stays the same size. 
+                                setLerpInfof_s(&windowH, newHeighVal, 0.3f, &lastHeighestYValue);
+                                setLerpInfof_s(&scrAt, windowHeight, 0.3f, &scrollHandleAt.y);
+                                
+                                // TODO(Oliver): This is broken! we need to
+                                // think about this more. There are different cases we need
+                                // to handle. like when there is info at the bottom, but also when we go back to the top when we change room and when the window gets smaller. and we can't just use the print bounds, since there is the case when one line dissapears and one appears, it won't move. 
+                            }
+                        } else {
+                            lastHeighestYValue = newHeighVal;
+                            setYValue = false;
                         }
-                    } else {
-                        lastHeighestYValue = newHeighVal;
-                        setYValue = false;
                     }
+                    changedState = false;
                     
 #if 0 //draw white lines 
                     openGlDrawLine(v2(roomItemsWindow.minX, roomItemsWindow.minY), v2(roomItemsWindow.maxX, roomItemsWindow.minY), COLOR_WHITE, 3, mat4());

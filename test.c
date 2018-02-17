@@ -1,5 +1,10 @@
+#include <stdlib.h>
 #include <stdio.h>
-int main(int argc, char *args[]) {
+#include <string.h>
+#include <stdbool.h>
 
-return 0;
+#include "easy_array.h"
+int main(int argc, char *args[]) {
+    
+    return 0;
 }

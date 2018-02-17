@@ -304,18 +304,28 @@ typedef struct {
     
     bool isDynamic;
     
-    bool active;
+    bool active; //this is more is valid
 } PrintInfo;
 
 typedef enum {
     INPUT_ACTIVE = 1 << 1,
 } GameStateFlag;
 
+typedef struct FreeIndex FreeIndex;
+typedef struct FreeIndex {
+    int index;
+    
+    FreeIndex *next;
+} FreeIndex;
+
 typedef struct GameState {
     unsigned int flags;
     
     PrintInfo printInfos[256];
     int printInfoCount;
+    
+    FreeIndex *freeIndexes;
+    FreeIndex *freeList;
     
     Rect2f bounds;
     V2 posAt; 

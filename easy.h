@@ -10,9 +10,11 @@ New File
 
 #if 1 //turn off for crash assert
 #define assert(statement) if(!(statement)) {printf("Something went wrong at %d", __LINE__); exit(0);}
-#else 
+#else
 #define assert(statement) if(!(statement)) { int *i_ = 0; *i_ = 0; }
 #endif
+
+#include <limits.h>
 
 #define PI32 3.14159265359
 #define COLOR_NULL v4(0, 0, 0, 0)
